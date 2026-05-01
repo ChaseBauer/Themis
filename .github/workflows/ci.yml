@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Backend ──────────────────────────────────────────────────────────────────
+  # Backend
   backend:
     name: Backend (Rust)
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
       - name: Build
         run: cargo build --release
 
-  # ── Frontend ─────────────────────────────────────────────────────────────────
+  # Frontend
   frontend:
     name: Frontend (TypeScript)
     runs-on: ubuntu-latest
@@ -71,7 +71,7 @@ jobs:
       - name: Build
         run: npm run build
 
-  # ── Docker build check ────────────────────────────────────────────────────────
+  # Docker build check
   docker:
     name: Docker build
     runs-on: ubuntu-latest

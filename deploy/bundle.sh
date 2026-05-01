@@ -3,27 +3,26 @@
 # The output is a single archive that can be transferred to a target machine.
 #
 # Usage:
-#   ./deploy/bundle.sh [VERSION] [local]
+#   ./deploy/bundle.sh [VERSION] [remote]
 #
-#   VERSION   Image tag to pull from GHCR (default: latest).
-#             Ignored when local mode is set.
-#   local     Build images from source instead of pulling from GHCR.
-#             Use this before cutting a release or when you have no registry access.
+#   VERSION   Image tag to use for the packaged images (default: latest).
+#   remote    Pull images from GHCR instead of building from source.
+#             Use only after publishing public images for the requested version.
 #
 # Examples:
-#   ./deploy/bundle.sh v0.1.0          # pull v0.1.0 from GHCR
-#   ./deploy/bundle.sh local         # build from source, tag as "local"
-#   ./deploy/bundle.sh v0.1.0 local  # build from source, tag as v0.1.0
+#   ./deploy/bundle.sh v0.1.0         # build from source, tag as v0.1.0
+#   ./deploy/bundle.sh latest         # build from source, tag as latest
+#   ./deploy/bundle.sh v0.1.0 remote  # pull published images from GHCR
 #
 # Output: themis-<version>.tar.gz
 set -euo pipefail
 
 # Args
-LOCAL=false
+REMOTE=false
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
-        local) LOCAL=true ;;
+        remote) REMOTE=true ;;
         *)       VERSION="$arg" ;;
     esac
 done
@@ -58,15 +57,15 @@ FRONTEND_IMAGE="${REGISTRY}/themis-frontend:${VERSION}"
 POSTGRES_IMAGE="postgres:16-alpine"
 
 # Build or pull images
-if [[ "$LOCAL" == true ]]; then
-    info "Building images from source (version: ${VERSION})..."
-    docker build -t "${BACKEND_IMAGE}"  "${REPO_ROOT}/backend"
-    docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/frontend"
-    docker pull "${POSTGRES_IMAGE}"
-else
+if [[ "$REMOTE" == true ]]; then
     info "Pulling images for version ${VERSION} from GHCR..."
     docker pull "${BACKEND_IMAGE}"
     docker pull "${FRONTEND_IMAGE}"
+    docker pull "${POSTGRES_IMAGE}"
+else
+    info "Building images from source (version: ${VERSION})..."
+    docker build -t "${BACKEND_IMAGE}"  "${REPO_ROOT}/backend"
+    docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/frontend"
     docker pull "${POSTGRES_IMAGE}"
 fi
 

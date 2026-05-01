@@ -18,11 +18,11 @@ On the build machine:
 
 - Docker Engine
 - Docker Compose plugin
-- Internet access if pulling release images
+- Internet access to pull base images and Postgres
 
 ## Build the Bundle
 
-From the repo on a machine with internet access:
+From the repo:
 
 ```bash
 ./deploy/bundle.sh v0.1.0
@@ -34,7 +34,7 @@ This creates:
 themis-v0.1.0.tar.gz
 ```
 
-To build from your local source tree instead of pulling release images, use the local image mode documented in [deploy/bundle.sh](/Users/bauer/Desktop/Projects/NetOp/deploy/bundle.sh).
+The bundle command builds Themis from your local source tree and packages it with Postgres.
 
 ## Install on the Target Server
 
