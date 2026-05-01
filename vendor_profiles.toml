@@ -1,0 +1,36 @@
+# Themis vendor profiles override file
+#
+# Set VENDOR_PROFILES_PATH=/etc/themis/vendor_profiles.toml (or any path) to load this file.
+# Entries here are checked BEFORE the built-in defaults, so you can override any vendor
+# or add support for new ones without rebuilding the service.
+#
+# Each [[vendor_profiles]] entry:
+#   matches      - list of case-insensitive substrings matched against the device vendor field
+#                  (first entry whose any keyword appears in the vendor string wins)
+#   disable_pager - commands sent before the config pull to suppress pagination
+#   show_config   - command used to retrieve the running configuration
+#
+# Built-in defaults (applied when no entry here matches):
+#   cisco / ios / ios-xe / ios-xr / nxos  → terminal length 0  /  show running-config
+#   juniper / junos                        → set cli screen-length 0  /  show configuration | no-more
+#   arista / eos                           → terminal length 0  /  show running-config
+#   palo / pan-os                          → set cli pager off  /  show config running
+#   hpe / h3c / comware                    → screen-length disable  /  display current-configuration
+#   fortinet / fortigate                   → (none)  /  show full-configuration
+#   f5 / bigip / big-ip                    → (none)  /  list /all
+#   mikrotik                               → (none)  /  export verbose
+#   (everything else)                      → (none)  /  show running-config
+#
+# Examples
+
+# Override the Cisco show command to include all defaults:
+# [[vendor_profiles]]
+# matches = ["cisco", "ios"]
+# disable_pager = ["terminal length 0"]
+# show_config = "show running-config all"
+
+# Add a custom in-house NOS:
+# [[vendor_profiles]]
+# matches = ["acme-os", "acmenet"]
+# disable_pager = ["set pager disable"]
+# show_config = "show config full"

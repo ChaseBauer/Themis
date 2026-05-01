@@ -1,0 +1,29 @@
+# Dependencies / build artifacts
+frontend/node_modules
+backend/target
+
+# Claude Code local settings
+.claude/
+
+# Secrets, never commit real env files
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+
+# Packer build output
+deploy/ova/output-ova/
+deploy/ova/.packer_cache/
+deploy/ova/packer_cache/
+
+# Generated deployment bundles
+themis-*/
+*.tar.gz
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

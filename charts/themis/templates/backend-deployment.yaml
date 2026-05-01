@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "themis.backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "themis.labels" . | nindent 4 }}
+    {{- include "themis.backend.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "themis.backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "themis.labels" . | nindent 8 }}
+        {{- include "themis.backend.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Force pod restart when the vendor profiles ConfigMap changes.
+        checksum/vendor-profiles: {{ .Values.vendorProfiles | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "themis.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "themis.fullname" . }}
+                  key: postgres-password
+            - name: DATABASE_URL
+              value: {{ include "themis.databaseUrl" . | quote }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "themis.fullname" . }}
+                  key: jwt-secret
+            - name: MAX_GOLDEN_CONFIGS
+              value: {{ .Values.backend.maxGoldenConfigs | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.backend.rustLog | quote }}
+            - name: VENDOR_PROFILES_PATH
+              value: /etc/themis/vendor_profiles.toml
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: vendor-profiles
+              mountPath: /etc/themis
+              readOnly: true
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/auth/me
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            # 401 means the server is up and routing correctly
+            # (unauthenticated, but that's expected without a token)
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: vendor-profiles
+          configMap:
+            name: {{ include "themis.fullname" . }}-vendor-profiles

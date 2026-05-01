@@ -1,0 +1,19 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Themis",
+  "name_for_model": "themis",
+  "description_for_human": "Network operations change management, golden configs, drift detection, approvals, and deployments.",
+  "description_for_model": "Use Themis to inspect network devices, create and review config changes, manage approvals, monitor drift, and trigger safe deployments. Authenticate with a bearer JWT from /api/auth/login unless the user provides an existing token.",
+  "auth": {
+    "type": "user_http",
+    "authorization_type": "bearer"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "/openapi.yaml",
+    "is_user_authenticated": true
+  },
+  "logo_url": "/themis-logo.svg",
+  "contact_email": "admin@example.local",
+  "legal_info_url": "/docs.html"
+}

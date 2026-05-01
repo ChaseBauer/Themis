@@ -1,0 +1,52 @@
+# Themis , standalone compose file.
+# Works for both online and air-gapped installs.
+#
+# Online (images pulled from GHCR):
+#   curl -fsSL https://raw.githubusercontent.com/ChaseBauer/Themis/main/deploy/setup.sh | bash
+#
+# Air-gapped (images pre-loaded from bundle):
+#   ./start.sh        (inside the bundle created by deploy/bundle.sh)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-themis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run start.sh or set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-themis}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-themis}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    image: ${IMAGE_REGISTRY:-ghcr.io/chasebauer}/themis-backend:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-themis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-themis}
+      JWT_SECRET: ${JWT_SECRET:?Run start.sh or set JWT_SECRET in .env}
+      MAX_GOLDEN_CONFIGS: ${MAX_GOLDEN_CONFIGS:-10}
+      RUST_LOG: ${RUST_LOG:-themis_backend=info}
+      VENDOR_PROFILES_PATH: /etc/themis/vendor_profiles.toml
+    volumes:
+      - ./vendor_profiles.toml:/etc/themis/vendor_profiles.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '${BACKEND_PORT:-8080}:8080'
+    restart: unless-stopped
+
+  frontend:
+    image: ${IMAGE_REGISTRY:-ghcr.io/chasebauer}/themis-frontend:${IMAGE_TAG:-latest}
+    ports:
+      - '${HTTP_PORT:-80}:80'
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:

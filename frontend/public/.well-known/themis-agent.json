@@ -1,0 +1,28 @@
+{
+  "schema_version": "2026-04-27",
+  "name": "Themis",
+  "description": "Agent-friendly manifest for Themis network operations APIs.",
+  "base_url": "/api",
+  "docs_url": "/docs.html",
+  "openapi_url": "/openapi.yaml",
+  "auth": {
+    "type": "bearer_jwt",
+    "login_endpoint": "/api/auth/login",
+    "header": "Authorization: Bearer <token>",
+    "oauth_start_endpoint": "/api/auth/oauth/start"
+  },
+  "roles": {
+    "viewer": "Read-only access.",
+    "engineer": "Create changes and deploy approved changes, but cannot approve own changes.",
+    "admin": "Full access including RBAC, settings, and force deletion."
+  },
+  "important_endpoints": [
+    { "method": "GET", "path": "/api/devices", "purpose": "List devices" },
+    { "method": "POST", "path": "/api/devices/{id}/changes", "purpose": "Create a change for one device" },
+    { "method": "POST", "path": "/api/changes/batch", "purpose": "Create one batch change across same-OS devices" },
+    { "method": "POST", "path": "/api/changes/{id}/approve", "purpose": "Approve a change" },
+    { "method": "GET", "path": "/api/changes/{id}/deploy", "purpose": "Deploy a change with Server-Sent Events output" },
+    { "method": "GET", "path": "/api/drift", "purpose": "List open config drift alerts" },
+    { "method": "POST", "path": "/api/devices/{id}/revert-golden", "purpose": "Replace device config with golden config" }
+  ]
+}

@@ -1,0 +1,29 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Themis shield ledger logo</title>
+  <desc id="desc">Minimal shield icon with a three-step change ledger inside, representing protected golden network configurations.</desc>
+  <path
+    d="M256 56
+       C205 88 153 103 96 112
+       C86 114 80 121 80 131
+       V254
+       C80 344 139 418 256 464
+       C373 418 432 344 432 254
+       V131
+       C432 121 426 114 416 112
+       C359 103 307 88 256 56Z"
+    stroke="#061F49"
+    stroke-width="28"
+    stroke-linejoin="round"
+    fill="none" />
+  <path
+    d="M199 176 V336"
+    stroke="#061F49"
+    stroke-width="18"
+    stroke-linecap="round" />
+  <circle cx="199" cy="176" r="30" fill="#FFFFFF" stroke="#2F936E" stroke-width="18" />
+  <circle cx="199" cy="256" r="30" fill="#FFFFFF" stroke="#D9A300" stroke-width="18" />
+  <circle cx="199" cy="336" r="30" fill="#FFFFFF" stroke="#D9433F" stroke-width="18" />
+  <path d="M264 176 H348" stroke="#061F49" stroke-width="18" stroke-linecap="round" />
+  <path d="M264 256 H348" stroke="#061F49" stroke-width="18" stroke-linecap="round" />
+  <path d="M264 336 H348" stroke="#061F49" stroke-width="18" stroke-linecap="round" />
+</svg>

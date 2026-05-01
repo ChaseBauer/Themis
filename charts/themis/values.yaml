@@ -1,0 +1,88 @@
+# ──────────────────────────────────────────────
+# Themis Helm values
+# Override values with Helm set options or a values file.
+# ──────────────────────────────────────────────
+
+# Number of backend replicas
+replicaCount: 1
+
+backend:
+  image:
+    repository: ghcr.io/chasebauer/themis-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  # Required. Set via a Helm value or a Kubernetes secret reference.
+  jwtSecret: ""
+  maxGoldenConfigs: 10
+  rustLog: "themis_backend=info"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Extra environment variables injected into the backend pod.
+  extraEnv: []
+  # - name: SOME_VAR
+  #   value: "some-value"
+
+frontend:
+  image:
+    repository: ghcr.io/chasebauer/themis-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+postgresql:
+  # Deploy a bundled PostgreSQL pod. Set to false to use an external database.
+  enabled: true
+  image: postgres:16-alpine
+  auth:
+    username: themis
+    # Required. Set via a Helm value.
+    password: ""
+    database: themis
+  storage:
+    size: 10Gi
+    # storageClassName: ""  # uncomment to override storage class
+
+ingress:
+  enabled: true
+  # IngressClass to use (e.g. nginx, traefik).
+  className: nginx
+  # Hostname the app will be served from.
+  host: themis.example.com
+  tls:
+    # Enable TLS. Requires cert-manager or a pre-provisioned secret.
+    enabled: false
+    # If using cert-manager, this annotation triggers automatic issuance.
+    certManagerIssuer: letsencrypt-prod
+    # Name of the TLS secret. cert-manager will create it; or provision it manually.
+    secretName: themis-tls
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # Create a Role + RoleBinding granting the pod only what it needs.
+  create: true
+
+# Contents of vendor_profiles.toml mounted into the backend.
+#    Edit this block to override or add vendor profiles without rebuilding the image.
+vendorProfiles: |
+  # Vendor profile overrides. See vendor_profiles.toml for format.
+  # Entries here are checked before built-in defaults.
+  #
+  # [[vendor_profiles]]
+  # matches = ["cisco", "ios"]
+  # disable_pager = ["terminal length 0"]
+  # show_config = "show running-config all"

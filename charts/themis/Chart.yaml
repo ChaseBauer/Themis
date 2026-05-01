@@ -1,0 +1,12 @@
+apiVersion: v2
+name: themis
+description: Themis network configuration management platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - network
+  - configuration
+  - management
+maintainers:
+  - name: Themis

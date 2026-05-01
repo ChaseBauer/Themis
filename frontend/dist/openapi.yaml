@@ -1,0 +1,1324 @@
+openapi: 3.1.0
+info:
+  title: Themis API
+  version: 0.1.0
+  description: |
+    Themis network operations API for devices, change requests, approvals, comments,
+    golden configs, drift detection, RBAC, AD/LDAP, OAuth/OIDC, and safe deployments.
+servers:
+  - url: /api
+    description: Same-origin Themis API
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Devices
+  - name: Changes
+  - name: Comments
+  - name: Drift
+  - name: Golden Configs
+  - name: Admin
+  - name: Users
+  - name: Stats
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Log in with a local or AD/LDAP account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: JWT and user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/register:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Register a local account
+      description: The first registered user becomes admin. Later users default to engineer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: JWT and user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /auth/password:
+    put:
+      tags: [Auth]
+      summary: Change current user's local password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /auth/oauth/config:
+    get:
+      tags: [Auth]
+      security: []
+      summary: Get OAuth login display config
+      responses:
+        "200":
+          description: OAuth display config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  provider_name:
+                    type: string
+                required: [enabled, provider_name]
+  /auth/oauth/start:
+    get:
+      tags: [Auth]
+      security: []
+      summary: Start browser OAuth/OIDC login
+      responses:
+        "307":
+          description: Redirect to the configured provider
+  /devices:
+    get:
+      tags: [Devices]
+      summary: List devices
+      responses:
+        "200":
+          description: Devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+    post:
+      tags: [Devices]
+      summary: Create a device
+      description: Viewer users are forbidden. SSH password is write-only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceCreateRequest"
+      responses:
+        "200":
+          description: Created device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+  /devices/health:
+    get:
+      tags: [Devices]
+      summary: Check reachability for all devices
+      responses:
+        "200":
+          description: Device health checks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeviceHealth"
+  /devices/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    get:
+      tags: [Devices]
+      summary: Get a device
+      responses:
+        "200":
+          description: Device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+    put:
+      tags: [Devices]
+      summary: Update a device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceUpdateRequest"
+      responses:
+        "200":
+          description: Updated device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+    delete:
+      tags: [Devices]
+      summary: Delete or request deletion of a device
+      description: Admins force delete. Non-admins create a delete-review change.
+      responses:
+        "204":
+          description: Deleted or submitted for review
+  /devices/{id}/test-connection:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    post:
+      tags: [Devices]
+      summary: Test SSH connectivity
+      responses:
+        "200":
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestConnectionResult"
+  /devices/{id}/onboard:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    post:
+      tags: [Golden Configs]
+      summary: Pull current config and save it as golden
+      responses:
+        "200":
+          description: Golden config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoldenConfig"
+  /devices/{id}/revert-golden:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    post:
+      tags: [Drift]
+      summary: Replace a device config with the current golden config
+      responses:
+        "200":
+          description: Created audit change and command output
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  change:
+                    $ref: "#/components/schemas/ConfigChange"
+                  output:
+                    type: string
+                required: [change, output]
+  /devices/{id}/changes:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    get:
+      tags: [Changes]
+      summary: List changes for a device
+      responses:
+        "200":
+          description: Changes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConfigChange"
+    post:
+      tags: [Changes]
+      summary: Create a change for a device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeCreateRequest"
+      responses:
+        "200":
+          description: Created change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigChange"
+  /devices/{id}/golden-configs:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    get:
+      tags: [Golden Configs]
+      summary: List golden configs for a device
+      responses:
+        "200":
+          description: Golden configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GoldenConfig"
+    post:
+      tags: [Golden Configs]
+      summary: Save a golden config for a device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: string
+              required: [config]
+      responses:
+        "200":
+          description: Golden config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoldenConfig"
+  /devices/{id}/drift:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    get:
+      tags: [Drift]
+      summary: Get open drift for a device
+      responses:
+        "200":
+          description: Drift or null
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ConfigDrift"
+                  - type: "null"
+  /changes:
+    get:
+      tags: [Changes]
+      summary: List all changes
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ChangeStatus"
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Paged changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangesPage"
+  /changes/batch:
+    post:
+      tags: [Changes]
+      summary: Create a batch change
+      description: Devices must be on the same OS.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchChangeCreateRequest"
+      responses:
+        "200":
+          description: Created child changes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConfigChange"
+  /changes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+    get:
+      tags: [Changes]
+      summary: Get a change with approvals, batch devices, and attempts
+      responses:
+        "200":
+          description: Change detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeDetail"
+    put:
+      tags: [Changes]
+      summary: Revise a change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeUpdateRequest"
+      responses:
+        "200":
+          description: Updated change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeDetail"
+    delete:
+      tags: [Changes]
+      summary: Delete a pending change
+      responses:
+        "204":
+          description: Deleted
+  /changes/{id}/approve:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+    post:
+      tags: [Changes]
+      summary: Approve a change
+      description: Engineers cannot approve their own changes.
+      responses:
+        "200":
+          description: Updated change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeDetail"
+  /changes/{id}/unapprove:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+    post:
+      tags: [Changes]
+      summary: Remove current user's approval
+      responses:
+        "200":
+          description: Updated change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeDetail"
+  /changes/{id}/deploy:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+    get:
+      tags: [Changes]
+      summary: Deploy a change with Server-Sent Events
+      description: Streams deployment status and output. Requires approved status and resolved comments.
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /changes/{id}/comments:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+    get:
+      tags: [Comments]
+      summary: List comments for a change
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChangeComment"
+    post:
+      tags: [Comments]
+      summary: Add a general or line comment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentCreateRequest"
+      responses:
+        "200":
+          description: Created comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeComment"
+  /changes/{id}/comments/{comment_id}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+      - $ref: "#/components/parameters/CommentId"
+    post:
+      tags: [Comments]
+      summary: Resolve a comment
+      responses:
+        "200":
+          description: Updated comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeComment"
+  /changes/{id}/comments/{comment_id}:
+    parameters:
+      - $ref: "#/components/parameters/ChangeId"
+      - $ref: "#/components/parameters/CommentId"
+    delete:
+      tags: [Comments]
+      summary: Delete a comment before deployment
+      responses:
+        "204":
+          description: Deleted
+  /drift:
+    get:
+      tags: [Drift]
+      summary: List open config drift alerts
+      responses:
+        "200":
+          description: Open drift alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConfigDrift"
+  /drift/{id}/accept:
+    parameters:
+      - $ref: "#/components/parameters/DriftId"
+    post:
+      tags: [Drift]
+      summary: Accept drift and create a change request
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+      responses:
+        "200":
+          description: Updated drift
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigDrift"
+  /drift/{id}/dismiss:
+    parameters:
+      - $ref: "#/components/parameters/DriftId"
+    post:
+      tags: [Drift]
+      summary: Dismiss drift
+      responses:
+        "200":
+          description: Updated drift
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigDrift"
+  /golden-configs/export:
+    get:
+      tags: [Golden Configs]
+      summary: Export golden configs as a zip
+      responses:
+        "200":
+          description: Zip archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List users as admin
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+  /admin/users/{id}/role:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Admin]
+      summary: Change a user's role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  $ref: "#/components/schemas/UserRole"
+              required: [role]
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /admin/settings:
+    get:
+      tags: [Admin]
+      summary: Get app settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+    put:
+      tags: [Admin]
+      summary: Update app settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettingsUpdate"
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+  /stats:
+    get:
+      tags: [Stats]
+      summary: Get dashboard stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    DeviceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChangeId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CommentId:
+      name: comment_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DriftId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    UserRole:
+      type: string
+      enum: [viewer, engineer, admin]
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+      required: [id, username, email, role]
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+      required: [username, password]
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required: [username, email, password]
+    ChangePasswordRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+      required: [current_password, new_password]
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required: [token, user]
+    Device:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        hostname:
+          type: string
+        ip_address:
+          type: string
+        vendor:
+          type: string
+        os:
+          type: string
+        ssh_port:
+          type: integer
+        ssh_username:
+          type: string
+          nullable: true
+        config_pull_command:
+          type: string
+          nullable: true
+        ssh_options:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+          nullable: true
+      required: [id, name, hostname, ip_address, vendor, os, ssh_port, tags, created_at]
+    DeviceCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        hostname:
+          type: string
+        ip_address:
+          type: string
+        vendor:
+          type: string
+        os:
+          type: string
+        ssh_port:
+          type: integer
+          default: 22
+        ssh_username:
+          type: string
+        ssh_password:
+          type: string
+          format: password
+        tags:
+          type: array
+          items:
+            type: string
+      required: [name, hostname, ip_address, vendor, os, ssh_port]
+    DeviceUpdateRequest:
+      allOf:
+        - $ref: "#/components/schemas/DeviceCreateRequest"
+    DeviceHealth:
+      type: object
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        reachable:
+          type: boolean
+        latency_ms:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        checked_at:
+          type: string
+          format: date-time
+      required: [device_id, reachable, checked_at]
+    TestConnectionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              ok:
+                type: boolean
+              detail:
+                type: string
+            required: [label, ok]
+      required: [success, steps]
+    ChangeStatus:
+      type: string
+      enum: [pending, approved, rejected, deploying, deployed, failed]
+    ConfigChange:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        device_name:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        config_diff:
+          type: string
+        full_config:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/ChangeStatus"
+        submitted_by:
+          type: string
+          format: uuid
+        submitted_by_username:
+          type: string
+        required_approvals:
+          type: integer
+        approval_count:
+          type: integer
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_by:
+          type: string
+          format: uuid
+          nullable: true
+        scheduled_save_as_golden:
+          type: boolean
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+        deployed_at:
+          type: string
+          format: date-time
+          nullable: true
+        deployment_output:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - device_id
+        - device_name
+        - title
+        - config_diff
+        - status
+        - submitted_by
+        - submitted_by_username
+        - required_approvals
+        - approval_count
+        - scheduled_save_as_golden
+        - created_at
+        - updated_at
+    ChangeCreateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        config_diff:
+          type: string
+        full_config:
+          type: string
+        required_approvals:
+          type: integer
+          minimum: 1
+        scheduled_at:
+          type: string
+          format: date-time
+        scheduled_save_as_golden:
+          type: boolean
+      required: [title, config_diff]
+    ChangeUpdateRequest:
+      allOf:
+        - $ref: "#/components/schemas/ChangeCreateRequest"
+    BatchChangeCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/ChangeCreateRequest"
+        - type: object
+          properties:
+            device_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+          required: [device_ids]
+    Approval:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        change_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        status:
+          type: string
+          enum: [approved, rejected]
+        comment:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required: [id, change_id, user_id, username, status, created_at]
+    BatchDevice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        change_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        hostname:
+          type: string
+        ip_address:
+          type: string
+        status:
+          $ref: "#/components/schemas/ChangeStatus"
+        approval_count:
+          type: integer
+        required_approvals:
+          type: integer
+        deployed_at:
+          type: string
+          format: date-time
+          nullable: true
+        deployment_output:
+          type: string
+          nullable: true
+      required: [id, change_id, name, hostname, ip_address, status, approval_count, required_approvals]
+    DeploymentAttempt:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        change_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        device_name:
+          type: string
+        status:
+          type: string
+          enum: [deployed, failed]
+        output:
+          type: string
+        config_diff_snapshot:
+          type: string
+        full_config_snapshot:
+          type: string
+          nullable: true
+        attempted_by:
+          type: string
+          format: uuid
+          nullable: true
+        attempted_by_username:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required: [id, change_id, device_id, device_name, status, output, config_diff_snapshot, created_at]
+    ChangeDetail:
+      allOf:
+        - $ref: "#/components/schemas/ConfigChange"
+        - type: object
+          properties:
+            approvals:
+              type: array
+              items:
+                $ref: "#/components/schemas/Approval"
+            batch_devices:
+              type: array
+              items:
+                $ref: "#/components/schemas/BatchDevice"
+            deployment_attempts:
+              type: array
+              items:
+                $ref: "#/components/schemas/DeploymentAttempt"
+          required: [approvals, batch_devices, deployment_attempts]
+    ChangesPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigChange"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+      required: [items, total, page, limit, total_pages]
+    ChangeComment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        change_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        content:
+          type: string
+        parent_comment_id:
+          type: string
+          format: uuid
+          nullable: true
+        line_start:
+          type: integer
+          nullable: true
+        line_end:
+          type: integer
+          nullable: true
+        line_snapshot:
+          type: string
+          nullable: true
+        mentioned_user_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        resolved:
+          type: boolean
+        resolved_by:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_by_username:
+          type: string
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required: [id, change_id, user_id, username, content, mentioned_user_ids, resolved, created_at]
+    CommentCreateRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        parent_comment_id:
+          type: string
+          format: uuid
+        line_start:
+          type: integer
+        line_end:
+          type: integer
+        line_snapshot:
+          type: string
+        mentioned_user_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required: [content]
+    GoldenConfig:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        config:
+          type: string
+        version:
+          type: integer
+        created_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_by_username:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required: [id, device_id, config, version, created_at]
+    ConfigDrift:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        device_name:
+          type: string
+        golden_config_id:
+          type: string
+          format: uuid
+        current_config:
+          type: string
+        detected_at:
+          type: string
+          format: date-time
+        last_checked_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [open, accepted, dismissed, auto_resolved]
+        resolved_by:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_by_username:
+          type: string
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        accepted_change_id:
+          type: string
+          format: uuid
+          nullable: true
+      required: [id, device_id, device_name, golden_config_id, current_config, detected_at, last_checked_at, status]
+    AppSettings:
+      type: object
+      additionalProperties: true
+      properties:
+        max_golden_configs:
+          type: integer
+        default_required_approvals:
+          type: integer
+        batch_deploy_concurrency:
+          type: integer
+        drift_check_interval_secs:
+          type: integer
+        drift_check_concurrency:
+          type: integer
+        health_check_concurrency:
+          type: integer
+        vendor_profiles_toml:
+          type: string
+        ad_enabled:
+          type: boolean
+        ad_url:
+          type: string
+        ad_bind_dn:
+          type: string
+        ad_bind_password_configured:
+          type: boolean
+        ad_base_dn:
+          type: string
+        ad_user_filter:
+          type: string
+        ad_group_attribute:
+          type: string
+        ad_default_role:
+          $ref: "#/components/schemas/UserRole"
+        ad_role_mappings_toml:
+          type: string
+        oauth_enabled:
+          type: boolean
+        oauth_provider_name:
+          type: string
+        oauth_authorize_url:
+          type: string
+        oauth_token_url:
+          type: string
+        oauth_userinfo_url:
+          type: string
+        oauth_client_id:
+          type: string
+        oauth_client_secret_configured:
+          type: boolean
+        oauth_redirect_url:
+          type: string
+        oauth_scopes:
+          type: string
+        oauth_username_claim:
+          type: string
+        oauth_email_claim:
+          type: string
+        oauth_role_claim:
+          type: string
+        oauth_default_role:
+          $ref: "#/components/schemas/UserRole"
+        oauth_role_mappings_toml:
+          type: string
+    AppSettingsUpdate:
+      allOf:
+        - $ref: "#/components/schemas/AppSettings"
+        - type: object
+          properties:
+            ad_bind_password:
+              type: string
+              format: password
+            oauth_client_secret:
+              type: string
+              format: password
+    DashboardStats:
+      type: object
+      properties:
+        device_count:
+          type: integer
+        pending_changes:
+          type: integer
+        approved_changes:
+          type: integer
+        deployed_changes:
+          type: integer
+        user_count:
+          type: integer
+        recent_changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigChange"
+      required: [device_count, pending_changes, approved_changes, deployed_changes, user_count, recent_changes]

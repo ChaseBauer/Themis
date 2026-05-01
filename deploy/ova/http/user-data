@@ -1,0 +1,41 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+
+  network:
+    version: 2
+    ethernets:
+      enp0s3:
+        dhcp4: true
+
+  storage:
+    layout:
+      name: lvm
+    swap:
+      size: 0
+
+  identity:
+    hostname: themis
+    username: themis
+    # Temporary Packer build password. The provisioning script locks this account before export.
+    password: "$6$themisbuild$eZnph4.HFNUvaMglr0mdkexP/JQcHICVXloe35yvG6z/tBuNIYxhm81A4ZTcE5M166Z1jj8aZtV8IjkwauQuD."
+
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  packages:
+    - curl
+    - ca-certificates
+    - gnupg
+
+  late-commands:
+    # Allow themis user to run sudo without password (needed for service management)
+    - echo 'themis ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/themis
+    - chmod 440 /target/etc/sudoers.d/themis
+
+  user-data:
+    disable_root: true

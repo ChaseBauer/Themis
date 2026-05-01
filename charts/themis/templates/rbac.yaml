@@ -1,0 +1,32 @@
+{{- if .Values.rbac.create }}
+# The backend pod only needs to read its own secret (for JWT/DB creds).
+# No other Kubernetes API access is required.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "themis.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "themis.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ include "themis.fullname" . }}"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "themis.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "themis.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "themis.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "themis.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

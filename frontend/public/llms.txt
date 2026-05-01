@@ -1,0 +1,31 @@
+# Themis
+
+Themis is a network operations change-management system. It manages devices, golden configs,
+config drift, approvals, comments, scheduled deployments, deployment attempts, RBAC, AD/LDAP,
+and OAuth/OIDC login.
+
+API documentation:
+- Human/API explorer: /docs.html
+- OpenAPI spec: /openapi.yaml
+- Agent manifest: /.well-known/themis-agent.json
+- OpenAI plugin-compatible manifest: /.well-known/ai-plugin.json
+
+Authentication:
+- Use POST /api/auth/login to receive a JWT.
+- Send Authorization: Bearer <token> on protected API calls.
+- OAuth browser login starts at /api/auth/oauth/start.
+
+Common workflows:
+- List devices: GET /api/devices
+- Create a change: POST /api/devices/{device_id}/changes
+- Create a batch change: POST /api/changes/batch
+- Approve a change: POST /api/changes/{change_id}/approve
+- Deploy with streaming output: GET /api/changes/{change_id}/deploy
+- List config drift: GET /api/drift
+- Revert drift to golden config: POST /api/devices/{device_id}/revert-golden
+
+Safety notes:
+- Viewer users are read-only.
+- Engineers cannot approve their own changes.
+- Deployments may stream Server-Sent Events.
+- Admin-only endpoints are under /api/admin.

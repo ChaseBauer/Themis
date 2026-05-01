@@ -1,0 +1,27 @@
+Themis has been deployed.
+
+{{- if .Values.ingress.enabled }}
+
+  URL: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+
+{{- else }}
+
+  Ingress is disabled. Forward the frontend service to access the UI:
+    kubectl port-forward svc/{{ include "themis.frontend.fullname" . }} 8080:80 -n {{ .Release.Namespace }}
+  Then open: http://localhost:8080
+
+{{- end }}
+
+{{- if eq .Values.backend.jwtSecret "" }}
+
+  ⚠  WARNING: backend.jwtSecret is not set. The default is insecure.
+     Set backend.jwtSecret to a long random value before deploying.
+
+{{- end }}
+
+{{- if and .Values.postgresql.enabled (eq .Values.postgresql.auth.password "") }}
+
+  ⚠  WARNING: postgresql.auth.password is not set. The default is insecure.
+     Set postgresql.auth.password to a long random value before deploying.
+
+{{- end }}
