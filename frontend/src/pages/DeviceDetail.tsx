@@ -7,21 +7,10 @@ import StatusBadge from '../components/StatusBadge'
 import TerminalPane from '../components/TerminalPane'
 import type { ChangeStatus, ConfigChange, ConfigDrift, Device, GoldenConfig } from '../types'
 import { useAuthStore } from '../store'
+import TagPicker from '../components/TagPicker'
 
 const inputCls =
   'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500'
-
-function parseTags(value: string) {
-  return Array.from(
-    new Map(
-      value
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .map((tag) => [tag.toLowerCase(), tag]),
-    ).values(),
-  )
-}
 
 const OS_OPTIONS = ['IOS', 'IOS-XE', 'IOS-XR', 'NX-OS', 'JunOS', 'EOS', 'PAN-OS', 'FortiOS', 'TMOS', 'RouterOS', 'Comware', 'Other']
 const VENDORS = ['Cisco', 'Juniper', 'Arista', 'Palo Alto', 'F5', 'HPE', 'Fortinet', 'MikroTik', 'Other']
@@ -40,9 +29,14 @@ const VENDOR_DEFAULT_COMMANDS: Record<string, string> = {
 
 function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => void }) {
   const qc = useQueryClient()
+  const { data: sites = [] } = useQuery({
+    queryKey: ['device-sites'],
+    queryFn: () => devicesApi.listSites().then((r) => r.data),
+  })
   const [form, setForm] = useState({
     name: device.name,
     ip_address: device.ip_address,
+    site: device.site ?? '',
     vendor: device.vendor,
     os: device.os,
     ssh_port: device.ssh_port,
@@ -50,7 +44,7 @@ function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => v
     ssh_password: '',
     config_pull_command: device.config_pull_command ?? '',
     ssh_options: device.ssh_options ?? '',
-    tags: device.tags.join(', '),
+    tags: device.tags,
   })
   const [error, setError] = useState('')
 
@@ -59,6 +53,7 @@ function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => v
       devicesApi.update(device.id, {
         name: form.name,
         ip_address: form.ip_address,
+        site: form.site || null,
         vendor: form.vendor,
         os: form.os,
         ssh_port: form.ssh_port,
@@ -66,7 +61,7 @@ function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => v
         ssh_password: form.ssh_password || undefined,
         config_pull_command: form.config_pull_command || undefined,
         ssh_options: form.ssh_options || undefined,
-        tags: parseTags(form.tags),
+        tags: form.tags,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['devices', device.id] })
@@ -81,7 +76,7 @@ function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => v
     },
   })
 
-  const field = (key: keyof typeof form, value: string | number) =>
+  const field = (key: keyof typeof form, value: string | number | string[]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
   return (
@@ -101,19 +96,33 @@ function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => v
           )}
           {(
             [
-              ['name', 'Device Name'],
-              ['ip_address', 'IP Address / Hostname'],
-            ] as [keyof typeof form, string][]
-          ).map(([key, label]) => (
+              ['name', 'Device Name', true],
+              ['ip_address', 'IP Address / Hostname', true],
+            ] as [keyof typeof form, string, boolean][]
+          ).map(([key, label, required]) => (
             <div key={key}>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
               <input
-                type="text" required value={form[key] as string}
+                type="text" required={required} value={form[key] as string}
                 onChange={(e) => field(key, e.target.value)}
                 className={inputCls}
               />
             </div>
           ))}
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site</label>
+              <Link to="/sites-tags" onClick={onClose} className="text-xs font-medium text-blue-600 hover:text-blue-700">
+                Manage
+              </Link>
+            </div>
+            <select value={form.site} onChange={(e) => field('site', e.target.value)} className={inputCls}>
+              <option value="">No site</option>
+              {sites.map((site) => (
+                <option key={site.id} value={site.name}>{site.name}</option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vendor</label>
@@ -150,16 +159,8 @@ function EditDeviceModal({ device, onClose }: { device: Device; onClose: () => v
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Tags <span className="font-normal text-gray-400">(comma separated)</span>
-            </label>
-            <input
-              type="text"
-              value={form.tags}
-              onChange={(e) => field('tags', e.target.value)}
-              placeholder="branch, edge, firewall"
-              className={inputCls}
-            />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tags</label>
+            <TagPicker selected={form.tags} onChange={(tags) => field('tags', tags)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1024,7 +1025,22 @@ export default function DeviceDetail() {
               <span className="font-mono">{device.ip_address}</span>
               <span>·</span>
               <span>{device.vendor}{device.os ? ` · ${device.os}` : ''}</span>
+              {device.site && (
+                <>
+                  <span>·</span>
+                  <span>{device.site}</span>
+                </>
+              )}
             </div>
+            {device.tags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {device.tags.map((tag) => (
+                  <span key={tag} className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

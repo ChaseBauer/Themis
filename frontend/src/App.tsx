@@ -15,6 +15,7 @@ import Admin from './pages/Admin'
 import Drift from './pages/Drift'
 import Profile from './pages/Profile'
 import VendorProfileDocs from './pages/VendorProfileDocs'
+import SitesTags from './pages/SitesTags'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="devices" element={<Devices />} />
           <Route path="devices/:id" element={<DeviceDetail />} />
+          <Route path="sites-tags" element={<SitesTags />} />
           <Route path="devices/:deviceId/changes/new" element={<RequireEditor><NewChange /></RequireEditor>} />
           <Route path="changes" element={<Changes />} />
           <Route path="drift" element={<Drift />} />

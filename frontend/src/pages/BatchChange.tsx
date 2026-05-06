@@ -18,6 +18,7 @@ export default function BatchChange() {
   const [filters, setFilters] = useState({
     search: '',
     os: 'all',
+    site: 'all',
     tag: 'all',
   })
   const [form, setForm] = useState({
@@ -41,6 +42,10 @@ export default function BatchChange() {
     () => Array.from(new Set(devices.flatMap((d) => d.tags ?? []))).sort((a, b) => a.localeCompare(b)),
     [devices],
   )
+  const siteOptions = useMemo(
+    () => Array.from(new Set(devices.map((d) => d.site).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)),
+    [devices],
+  )
   const selectedDevices = useMemo(
     () => devices.filter((device) => selected.includes(device.id)),
     [devices, selected],
@@ -60,12 +65,14 @@ export default function BatchChange() {
         !q ||
         device.name.toLowerCase().includes(q) ||
         device.ip_address.toLowerCase().includes(q) ||
+        (device.site ?? '').toLowerCase().includes(q) ||
         device.vendor.toLowerCase().includes(q) ||
         deviceOs.toLowerCase().includes(q) ||
         tags.some((tag) => tag.toLowerCase().includes(q))
       const matchesOs = filters.os === 'all' || deviceOs === filters.os
+      const matchesSite = filters.site === 'all' || device.site === filters.site
       const matchesTag = filters.tag === 'all' || tags.includes(filters.tag)
-      return matchesSearch && matchesOs && matchesTag
+      return matchesSearch && matchesOs && matchesSite && matchesTag
     })
   }, [devices, filters])
 
@@ -175,7 +182,7 @@ export default function BatchChange() {
                   className={`${inputCls} pl-8`}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <select
                   value={filters.os}
                   onChange={(e) => setFilters((f) => ({ ...f, os: e.target.value }))}
@@ -184,6 +191,16 @@ export default function BatchChange() {
                   <option value="all">All OS</option>
                   {osOptions.map((os) => (
                     <option key={os} value={os}>{os}</option>
+                  ))}
+                </select>
+                <select
+                  value={filters.site}
+                  onChange={(e) => setFilters((f) => ({ ...f, site: e.target.value }))}
+                  className={inputCls}
+                >
+                  <option value="all">All sites</option>
+                  {siteOptions.map((site) => (
+                    <option key={site} value={site}>{site}</option>
                   ))}
                 </select>
                 <select
@@ -244,7 +261,7 @@ export default function BatchChange() {
                         {device.name}
                       </p>
                       <p className="text-xs text-gray-400 truncate">
-                        {device.ip_address} · {deviceOs}
+                        {device.ip_address} · {deviceOs}{device.site ? ` · ${device.site}` : ''}
                       </p>
                       {(device.tags ?? []).length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">

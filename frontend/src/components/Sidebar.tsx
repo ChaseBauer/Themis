@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Server,
+  Tags,
   GitBranch,
   AlertTriangle,
   BookOpen,
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/devices', icon: Server, label: 'Devices' },
   { to: '/changes', icon: GitBranch, label: 'All Changes' },
   { to: '/drift', icon: AlertTriangle, label: 'Config Drift' },
+  { to: '/sites-tags', icon: Tags, label: 'Sites & Tags' },
 ]
 
 export default function Sidebar() {

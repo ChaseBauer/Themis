@@ -1,28 +1,17 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueries, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Server, ChevronRight, Trash2, X, CheckCircle, XCircle, Loader, Shield, RefreshCw, Wifi, Download } from 'lucide-react'
 import { devicesApi } from '../api'
 import type { Device, DeviceHealth } from '../types'
 import { useAuthStore } from '../store'
+import TagPicker from '../components/TagPicker'
 
 const OS_OPTIONS = ['IOS', 'IOS-XE', 'IOS-XR', 'NX-OS', 'JunOS', 'EOS', 'PAN-OS', 'FortiOS', 'TMOS', 'RouterOS', 'Comware', 'Other']
 const VENDORS = ['Cisco', 'Juniper', 'Arista', 'Palo Alto', 'F5', 'HPE', 'Fortinet', 'MikroTik', 'Other']
 
 const inputCls =
   'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500'
-
-function parseTags(value: string) {
-  return Array.from(
-    new Map(
-      value
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .map((tag) => [tag.toLowerCase(), tag]),
-    ).values(),
-  )
-}
 
 // Section
 // Onboarding step types
@@ -60,12 +49,16 @@ function stepTextColor(status: StepStatus) {
 function AddDeviceModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { data: sites = [] } = useQuery({
+    queryKey: ['device-sites'],
+    queryFn: () => devicesApi.listSites().then((r) => r.data),
+  })
 
   const [form, setForm] = useState({
-    name: '', ip_address: '',
+    name: '', ip_address: '', site: '',
     vendor: 'Cisco', os: 'IOS',
     ssh_port: 22, ssh_username: '', ssh_password: '',
-    tags: '',
+    tags: [] as string[],
   })
   const [formError, setFormError] = useState('')
 
@@ -83,7 +76,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
   const setStep = (i: number, patch: Partial<Step>) =>
     setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
 
-  const field = (key: keyof typeof form, value: string | number) =>
+  const field = (key: keyof typeof form, value: string | number | string[]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
   const runOnboarding = async (device: Device) => {
@@ -143,9 +136,10 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
     try {
       const res = await devicesApi.create({
         ...form,
+        site: form.site || undefined,
         ssh_username: form.ssh_username || undefined,
         ssh_password: form.ssh_password || undefined,
-        tags: parseTags(form.tags),
+        tags: form.tags,
       })
       device = res.data
       setCreatedDevice(device)
@@ -182,19 +176,33 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
             )}
             {(
               [
-                ['name', 'Device Name', 'Core Router 1'],
-                ['ip_address', 'IP Address / Hostname', '10.0.0.1 or core-rtr-01.corp.local'],
-              ] as [keyof typeof form, string, string][]
-            ).map(([key, label, placeholder]) => (
+                ['name', 'Device Name', 'Core Router 1', true],
+                ['ip_address', 'IP Address / Hostname', '10.0.0.1 or core-rtr-01.corp.local', true],
+              ] as [keyof typeof form, string, string, boolean][]
+            ).map(([key, label, placeholder, required]) => (
               <div key={key}>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
                 <input
-                  type="text" required value={form[key] as string}
+                  type="text" required={required} value={form[key] as string}
                   onChange={(e) => field(key, e.target.value)}
                   placeholder={placeholder} className={inputCls}
                 />
               </div>
             ))}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site</label>
+                <Link to="/sites-tags" onClick={onClose} className="text-xs font-medium text-blue-600 hover:text-blue-700">
+                  Manage
+                </Link>
+              </div>
+              <select value={form.site} onChange={(e) => field('site', e.target.value)} className={inputCls}>
+                <option value="">No site</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.name}>{site.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               {([['vendor', 'Vendor', VENDORS], ['os', 'OS', OS_OPTIONS]] as [keyof typeof form, string, string[]][]).map(
                 ([key, label, opts]) => (
@@ -229,16 +237,8 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Tags <span className="font-normal text-gray-400">(comma separated)</span>
-              </label>
-              <input
-                type="text"
-                value={form.tags}
-                onChange={(e) => field('tags', e.target.value)}
-                placeholder="branch, edge, firewall"
-                className={inputCls}
-              />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tags</label>
+              <TagPicker selected={form.tags} onChange={(tags) => field('tags', tags)} />
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -418,6 +418,11 @@ export default function Devices() {
   const qc = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const [showModal, setShowModal] = useState(false)
+  const [filters, setFilters] = useState({
+    site: 'all',
+    tag: 'all',
+    sort: 'name',
+  })
   const isViewer = user?.role === 'viewer'
   const isAdmin = user?.role === 'admin'
 
@@ -425,6 +430,34 @@ export default function Devices() {
     queryKey: ['devices'],
     queryFn: () => devicesApi.list().then((r) => r.data),
   })
+
+  const siteOptions = useMemo(
+    () => Array.from(new Set(devices.map((device) => device.site).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)),
+    [devices],
+  )
+  const tagOptions = useMemo(
+    () => Array.from(new Set(devices.flatMap((device) => device.tags ?? []))).sort((a, b) => a.localeCompare(b)),
+    [devices],
+  )
+  const visibleDevices = useMemo(() => {
+    const filtered = devices.filter((device) => {
+      const matchesSite = filters.site === 'all' || device.site === filters.site
+      const matchesTag = filters.tag === 'all' || (device.tags ?? []).includes(filters.tag)
+      return matchesSite && matchesTag
+    })
+
+    return [...filtered].sort((a, b) => {
+      if (filters.sort === 'site') {
+        return (a.site || '').localeCompare(b.site || '') || a.name.localeCompare(b.name)
+      }
+      if (filters.sort === 'tag') {
+        const aTag = (a.tags ?? [])[0] ?? ''
+        const bTag = (b.tags ?? [])[0] ?? ''
+        return aTag.localeCompare(bTag) || a.name.localeCompare(b.name)
+      }
+      return a.name.localeCompare(b.name)
+    })
+  }, [devices, filters])
 
   const healthQueries = useQueries({
     queries: devices.map((device) => ({
@@ -460,7 +493,11 @@ export default function Devices() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Devices</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{devices.length} device(s) registered</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {visibleDevices.length === devices.length
+              ? `${devices.length} device(s) registered`
+              : `${visibleDevices.length} of ${devices.length} device(s) shown`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -497,12 +534,53 @@ export default function Devices() {
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-700">
+            <select
+              value={filters.site}
+              onChange={(e) => setFilters((f) => ({ ...f, site: e.target.value }))}
+              className="min-w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All sites</option>
+              {siteOptions.map((site) => (
+                <option key={site} value={site}>{site}</option>
+              ))}
+            </select>
+            <select
+              value={filters.tag}
+              onChange={(e) => setFilters((f) => ({ ...f, tag: e.target.value }))}
+              className="min-w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All tags</option>
+              {tagOptions.map((tag) => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
+            <select
+              value={filters.sort}
+              onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}
+              className="min-w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="name">Sort by name</option>
+              <option value="site">Sort by site</option>
+              <option value="tag">Sort by tag</option>
+            </select>
+            {(filters.site !== 'all' || filters.tag !== 'all' || filters.sort !== 'name') && (
+              <button
+                type="button"
+                onClick={() => setFilters({ site: 'all', tag: 'all', sort: 'name' })}
+                className="ml-auto rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700/50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">Device</th>
                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">OS</th>
                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">Vendor</th>
+                <th className="px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">Site</th>
                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">IP Address</th>
                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">
                   <span className="flex items-center gap-1.5">
@@ -514,7 +592,13 @@ export default function Devices() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-              {devices.map((device) => {
+              {visibleDevices.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-400">
+                    No devices match these filters.
+                  </td>
+                </tr>
+              ) : visibleDevices.map((device) => {
                 const health = healthMap[device.id]
                 return (
                 <tr key={device.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors">
@@ -547,6 +631,7 @@ export default function Devices() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{device.vendor}</td>
+                  <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{device.site || '-'}</td>
                   <td className="px-6 py-4 font-mono text-gray-600 dark:text-gray-300 text-xs">{device.ip_address}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">

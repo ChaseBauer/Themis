@@ -8,6 +8,8 @@ import type {
   ConfigDrift,
   DashboardStats,
   Device,
+  DeviceSite,
+  DeviceTag,
   DeviceHealth,
   GoldenConfig,
   User,
@@ -53,9 +55,15 @@ export const authApi = {
 export const devicesApi = {
   list: () => api.get<Device[]>('/devices'),
   get: (id: string) => api.get<Device>(`/devices/${id}`),
+  listSites: () => api.get<DeviceSite[]>('/devices/sites'),
+  createSite: (name: string) => api.post<DeviceSite>('/devices/sites', { name }),
+  deleteSite: (id: string) => api.delete(`/devices/sites/${id}`),
+  listTags: () => api.get<DeviceTag[]>('/devices/tags'),
+  createTag: (name: string) => api.post<DeviceTag>('/devices/tags', { name }),
+  deleteTag: (id: string) => api.delete(`/devices/tags/${id}`),
   create: (data: Omit<Device, 'id' | 'created_at' | 'created_by' | 'tags'> & { ssh_password?: string; tags?: string[] }) =>
     api.post<Device>('/devices', data),
-  update: (id: string, data: Partial<Device> & { ssh_password?: string; config_pull_command?: string | null; tags?: string[] }) =>
+  update: (id: string, data: Partial<Omit<Device, 'site'>> & { site?: string | null; ssh_password?: string; config_pull_command?: string | null; tags?: string[] }) =>
     api.put<Device>(`/devices/${id}`, data),
   delete: (id: string) => api.delete(`/devices/${id}`),
   testConnection: (id: string) =>

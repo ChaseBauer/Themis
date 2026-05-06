@@ -9,6 +9,7 @@ export interface Device {
   id: string
   name: string
   ip_address: string
+  site?: string
   vendor: string
   os: string
   ssh_port: number
@@ -19,6 +20,18 @@ export interface Device {
   tags: string[]
   created_at: string
   created_by?: string
+}
+
+export interface DeviceTag {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface DeviceSite {
+  id: string
+  name: string
+  created_at: string
 }
 
 export type ChangeStatus = 'pending' | 'approved' | 'rejected' | 'deploying' | 'deployed' | 'failed'

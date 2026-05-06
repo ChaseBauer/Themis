@@ -18,7 +18,10 @@ use crate::{
     error::{AppError, Result},
     models::{
         change::{ConfigChangeWithUser, CreateChangeRequest},
-        device::{CreateDeviceRequest, Device, UpdateDeviceRequest},
+        device::{
+            CreateDeviceRequest, CreateDeviceSiteRequest, CreateDeviceTagRequest, Device,
+            DeviceSite, DeviceTag, UpdateDeviceRequest,
+        },
         golden_config::{CreateGoldenConfigRequest, GoldenConfigWithUser},
     },
     routes::terminal,
@@ -28,6 +31,10 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_devices).post(create_device))
+        .route("/sites", get(list_sites).post(create_site))
+        .route("/sites/:id", get(get_site).delete(delete_site))
+        .route("/tags", get(list_tags).post(create_tag))
+        .route("/tags/:id", get(get_tag).delete(delete_tag))
         .route("/health", get(health_check_all))
         .route("/:id/health", get(health_check_one))
         .route(
@@ -59,16 +66,21 @@ async fn create_device(
 ) -> Result<Json<Device>> {
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
     auth::require_not_viewer(&state, user_id).await?;
+    let tags = clean_tags(req.tags);
+    ensure_tags_exist(&state, &tags).await?;
+    let site = normalize_optional(req.site.as_deref());
+    ensure_site_exists(&state, site.as_deref()).await?;
 
     let device = sqlx::query_as::<_, Device>(
         "INSERT INTO devices
-            (id, name, ip_address, vendor, os, ssh_port, ssh_username, ssh_password, config_pull_command, ssh_options, tags, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            (id, name, ip_address, site, vendor, os, ssh_port, ssh_username, ssh_password, config_pull_command, ssh_options, tags, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING *",
     )
     .bind(Uuid::new_v4())
     .bind(&req.name)
     .bind(&req.ip_address)
+    .bind(&site)
     .bind(&req.vendor)
     .bind(&req.os)
     .bind(req.ssh_port.unwrap_or(22))
@@ -76,10 +88,11 @@ async fn create_device(
     .bind(&req.ssh_password)
     .bind(&req.config_pull_command)
     .bind(&req.ssh_options)
-    .bind(clean_tags(req.tags))
+    .bind(&tags)
     .bind(user_id)
     .fetch_one(&state.db)
     .await?;
+    sync_device_tag_assignments(&state, device.id, &tags).await?;
 
     Ok(Json(device))
 }
@@ -105,24 +118,37 @@ async fn update_device(
 ) -> Result<Json<Device>> {
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
     auth::require_not_viewer(&state, user_id).await?;
+    let tags = req.tags.map(clean_tag_vec);
+    if let Some(tags) = &tags {
+        ensure_tags_exist(&state, tags).await?;
+    }
+    let site_touched = req.site.is_some();
+    let site = req
+        .site
+        .as_ref()
+        .and_then(|site| normalize_optional(site.as_deref()));
+    ensure_site_exists(&state, site.as_deref()).await?;
 
     let device = sqlx::query_as::<_, Device>(
         "UPDATE devices SET
              name               = COALESCE($2, name),
              ip_address         = COALESCE($3, ip_address),
-             vendor             = COALESCE($4, vendor),
-             os                 = COALESCE($5, os),
-             ssh_port           = COALESCE($6, ssh_port),
-             ssh_username       = COALESCE($7, ssh_username),
-             ssh_password       = COALESCE($8, ssh_password),
-             config_pull_command = $9,
-             ssh_options        = $10,
-             tags               = COALESCE($11, tags)
+             site               = CASE WHEN $4 THEN $5 ELSE site END,
+             vendor             = COALESCE($6, vendor),
+             os                 = COALESCE($7, os),
+             ssh_port           = COALESCE($8, ssh_port),
+             ssh_username       = COALESCE($9, ssh_username),
+             ssh_password       = COALESCE($10, ssh_password),
+             config_pull_command = $11,
+             ssh_options        = $12,
+             tags               = COALESCE($13, tags)
          WHERE id = $1 RETURNING *",
     )
     .bind(id)
     .bind(&req.name)
     .bind(&req.ip_address)
+    .bind(site_touched)
+    .bind(&site)
     .bind(&req.vendor)
     .bind(&req.os)
     .bind(req.ssh_port)
@@ -130,12 +156,169 @@ async fn update_device(
     .bind(&req.ssh_password)
     .bind(&req.config_pull_command)
     .bind(&req.ssh_options)
-    .bind(req.tags.map(clean_tag_vec))
+    .bind(&tags)
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound)?;
+    if let Some(tags) = &tags {
+        sync_device_tag_assignments(&state, id, tags).await?;
+    }
 
     Ok(Json(device))
+}
+
+async fn list_sites(State(state): State<AppState>, _claims: Claims) -> Result<Json<Vec<DeviceSite>>> {
+    let sites = sqlx::query_as::<_, DeviceSite>(
+        "SELECT id, name, created_at FROM device_sites ORDER BY LOWER(name)",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(sites))
+}
+
+async fn get_site(
+    State(state): State<AppState>,
+    _claims: Claims,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeviceSite>> {
+    let site = sqlx::query_as::<_, DeviceSite>(
+        "SELECT id, name, created_at FROM device_sites WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(site))
+}
+
+async fn create_site(
+    State(state): State<AppState>,
+    claims: Claims,
+    Json(req): Json<CreateDeviceSiteRequest>,
+) -> Result<Json<DeviceSite>> {
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
+    auth::require_not_viewer(&state, user_id).await?;
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("Site name is required".to_string()));
+    }
+
+    let site = sqlx::query_as::<_, DeviceSite>(
+        "INSERT INTO device_sites (id, name, name_key)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (name_key) DO UPDATE SET name = device_sites.name
+         RETURNING id, name, created_at",
+    )
+    .bind(Uuid::new_v4())
+    .bind(name)
+    .bind(name.to_lowercase())
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(site))
+}
+
+async fn delete_site(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode> {
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
+    auth::require_not_viewer(&state, user_id).await?;
+
+    let site_name: Option<String> = sqlx::query_scalar("SELECT name FROM device_sites WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await?;
+    let Some(site_name) = site_name else {
+        return Err(AppError::NotFound);
+    };
+
+    sqlx::query("DELETE FROM device_sites WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await?;
+    sqlx::query("UPDATE devices SET site = NULL WHERE LOWER(site) = LOWER($1)")
+        .bind(site_name)
+        .execute(&state.db)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_tags(State(state): State<AppState>, _claims: Claims) -> Result<Json<Vec<DeviceTag>>> {
+    let tags = sqlx::query_as::<_, DeviceTag>(
+        "SELECT id, name, created_at FROM device_tags ORDER BY LOWER(name)",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(tags))
+}
+
+async fn get_tag(
+    State(state): State<AppState>,
+    _claims: Claims,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeviceTag>> {
+    let tag = sqlx::query_as::<_, DeviceTag>(
+        "SELECT id, name, created_at FROM device_tags WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(tag))
+}
+
+async fn create_tag(
+    State(state): State<AppState>,
+    claims: Claims,
+    Json(req): Json<CreateDeviceTagRequest>,
+) -> Result<Json<DeviceTag>> {
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
+    auth::require_not_viewer(&state, user_id).await?;
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("Tag name is required".to_string()));
+    }
+
+    let tag = sqlx::query_as::<_, DeviceTag>(
+        "INSERT INTO device_tags (id, name, name_key)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (name_key) DO UPDATE SET name = device_tags.name
+         RETURNING id, name, created_at",
+    )
+    .bind(Uuid::new_v4())
+    .bind(name)
+    .bind(name.to_lowercase())
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(tag))
+}
+
+async fn delete_tag(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode> {
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
+    auth::require_not_viewer(&state, user_id).await?;
+
+    let tag_name: Option<String> = sqlx::query_scalar("SELECT name FROM device_tags WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await?;
+    let Some(tag_name) = tag_name else {
+        return Err(AppError::NotFound);
+    };
+
+    sqlx::query("DELETE FROM device_tags WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await?;
+    sqlx::query("UPDATE devices SET tags = array_remove(tags, $1)")
+        .bind(tag_name)
+        .execute(&state.db)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn clean_tags(tags: Option<Vec<String>>) -> Vec<String> {
@@ -155,6 +338,73 @@ fn clean_tag_vec(tags: Vec<String>) -> Vec<String> {
             }
             acc
         })
+}
+
+fn normalize_optional(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+async fn ensure_tags_exist(state: &AppState, tags: &[String]) -> Result<()> {
+    if tags.is_empty() {
+        return Ok(());
+    }
+    let existing: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM device_tags WHERE name_key = ANY($1)")
+            .bind(tags.iter().map(|tag| tag.to_lowercase()).collect::<Vec<_>>())
+            .fetch_all(&state.db)
+            .await?;
+    for tag in tags {
+        if !existing.iter().any(|existing| existing.eq_ignore_ascii_case(tag)) {
+            return Err(AppError::BadRequest(format!(
+                "Tag '{}' does not exist. Create it before assigning it to a device.",
+                tag
+            )));
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_site_exists(state: &AppState, site: Option<&str>) -> Result<()> {
+    let Some(site) = site else {
+        return Ok(());
+    };
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM device_sites WHERE name_key = $1)")
+            .bind(site.to_lowercase())
+            .fetch_one(&state.db)
+            .await?;
+    if !exists {
+        return Err(AppError::BadRequest(format!(
+            "Site '{}' does not exist. Create it before assigning it to a device.",
+            site
+        )));
+    }
+    Ok(())
+}
+
+async fn sync_device_tag_assignments(state: &AppState, device_id: Uuid, tags: &[String]) -> Result<()> {
+    sqlx::query("DELETE FROM device_tag_assignments WHERE device_id = $1")
+        .bind(device_id)
+        .execute(&state.db)
+        .await?;
+
+    if tags.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "INSERT INTO device_tag_assignments (device_id, tag_id)
+         SELECT $1, id FROM device_tags WHERE name_key = ANY($2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(device_id)
+    .bind(tags.iter().map(|tag| tag.to_lowercase()).collect::<Vec<_>>())
+    .execute(&state.db)
+    .await?;
+    Ok(())
 }
 
 async fn delete_device(

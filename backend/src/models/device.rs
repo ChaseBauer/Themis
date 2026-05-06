@@ -7,6 +7,7 @@ pub struct Device {
     pub id: Uuid,
     pub name: String,
     pub ip_address: String,
+    pub site: Option<String>,
     pub vendor: String,
     pub os: String,
     pub ssh_port: i32,
@@ -25,6 +26,7 @@ pub struct Device {
 pub struct CreateDeviceRequest {
     pub name: String,
     pub ip_address: String,
+    pub site: Option<String>,
     pub vendor: String,
     pub os: String,
     pub ssh_port: Option<i32>,
@@ -39,6 +41,7 @@ pub struct CreateDeviceRequest {
 pub struct UpdateDeviceRequest {
     pub name: Option<String>,
     pub ip_address: Option<String>,
+    pub site: Option<Option<String>>,
     pub vendor: Option<String>,
     pub os: Option<String>,
     pub ssh_port: Option<i32>,
@@ -47,4 +50,28 @@ pub struct UpdateDeviceRequest {
     pub config_pull_command: Option<String>,
     pub ssh_options: Option<String>,
     pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct DeviceTag {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateDeviceTagRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct DeviceSite {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateDeviceSiteRequest {
+    pub name: String,
 }
