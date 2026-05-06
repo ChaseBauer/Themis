@@ -11,14 +11,14 @@ CREATE TABLE IF NOT EXISTS config_drift (
     accepted_change_id  UUID        REFERENCES config_changes(id)
 );
 
-/* Only one open drift per device at a time */
+-- Only one open drift per device at a time
 CREATE UNIQUE INDEX IF NOT EXISTS idx_config_drift_device_open
     ON config_drift(device_id) WHERE status = 'open';
 
 CREATE INDEX IF NOT EXISTS idx_config_drift_device_id ON config_drift(device_id);
 CREATE INDEX IF NOT EXISTS idx_config_drift_status    ON config_drift(status);
 
-/* Add drift check interval in seconds to settings. Default 30. */
+-- Add drift check interval (seconds) to settings; default 30
 INSERT INTO app_settings (key, value) VALUES ('drift_check_interval_secs', '30')
     ON CONFLICT (key) DO NOTHING;
 

@@ -6,8 +6,8 @@ CREATE TABLE change_comments (
     content              TEXT        NOT NULL,
     line_start           INTEGER,
     line_end             INTEGER,
-    /* Snapshot of the selected diff lines at comment time, used to detect
-       whether the code changed after the comment was left. */
+    -- Snapshot of the selected diff lines at comment time; used to detect
+    -- whether the code changed after the comment was left.
     line_snapshot        TEXT,
     resolved             BOOLEAN     NOT NULL DEFAULT false,
     resolved_by          UUID        REFERENCES users(id),

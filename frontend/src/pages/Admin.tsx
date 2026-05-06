@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { adminApi } from '../api'
-import type { AppSettings, DrainRule, VendorProfileEntry } from '../types'
+import type { AppSettings, CommandErrorRule, CommandResponseRule, DrainRule, VendorProfileEntry } from '../types'
 import { useAuthStore } from '../store'
 
 type Tab = 'users' | 'settings' | 'directory' | 'vendor-profiles'
@@ -836,9 +836,8 @@ function VendorProfilesTab() {
             Active Vendor Profiles
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Themis checks override profiles first, then built-in profiles. Rollback placeholders
-            are already resolved using the current {settings?.rollback_guard_minutes ?? 2} minute
-            guard time.
+            Profiles tell Themis how to pull configs, deploy changes, recover safely, and ignore
+            noisy drift lines for each network OS. Overrides are checked before built-ins.
           </p>
         </div>
 
@@ -960,10 +959,11 @@ function VendorProfileCard({
               Pull: {profile.show_config}
             </div>
           </button>
-          <div className="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
-            {profile.reload_guard_cmd && <span>Guard: {profile.reload_guard_cmd}</span>}
-            {profile.replace_command && <span>Replace: {profile.replace_command}</span>}
-            {profile.replace_format && <span>Format: {profile.replace_format}</span>}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <ProfileCapability label="Deploy" enabled={profile.configure_enter.length > 0 || profile.save_config.length > 0 || profile.configure_save.length > 0} />
+            <ProfileCapability label="Safe" enabled={Boolean(profile.reload_guard_cmd || profile.guarded_configure_save.length)} />
+            <ProfileCapability label="Revert" enabled={Boolean(profile.replace_command || profile.terminal_replace_cmd)} />
+            <ProfileCapability label="Drift" enabled={Boolean(profile.drift_ignore_prefixes.length || profile.config_ignore_exact.length || profile.config_ignore_prefixes.length || profile.config_ignore_contains.length)} />
             <button
               onClick={(e) => {
                 e.preventDefault()
@@ -989,43 +989,63 @@ function VendorProfileCard({
           isSaving={isSaving}
         />
       ) : isViewing ? (
-        <div className="border-t border-gray-200 dark:border-white/10 px-4 py-4 grid gap-3 md:grid-cols-2">
-          <ProfileList label="Disable Pager" items={profile.disable_pager} />
-          <ProfileList label="Configure Enter" items={profile.configure_enter} />
-          <ProfileList label="Configure Save" items={profile.configure_save} />
-          <ProfileList label="Configure Exit" items={profile.configure_exit} />
-          <ProfileList label="Save Config" items={profile.save_config} />
-          <ProfileList label="Guarded Save" items={profile.guarded_configure_save} />
-          <ProfileList label="Replace Enter" items={profile.replace_enter} />
-          <ProfileList label="Replace Exit" items={profile.replace_exit} />
-          <ProfileList label="SCP Paths" items={profile.scp_paths} />
-          <ProfileList label="Drift Ignore Prefixes" items={profile.drift_ignore_prefixes} />
-          <ProfileList label="Config Ignore Exact" items={profile.config_ignore_exact} />
-          <ProfileList label="Config Ignore Prefixes" items={profile.config_ignore_prefixes} />
-          <ProfileList label="Config Ignore Contains" items={profile.config_ignore_contains} />
-          <ProfileList label="Deploy Error Patterns" items={profile.error_patterns} />
-          <ProfileList label="Replace Error Patterns" items={profile.replace_error_patterns} />
-          <ProfileList
-            label="Replace Error Rules"
-            items={profile.replace_error_rules.map(
-              (rule) =>
-                `${rule.command_starts_with || '*'} -> ${rule.output_contains.join(', ')}`
-            )}
-          />
-          <ProfileList
-            label="Prompt Responses"
-            items={profile.command_responses.map(
-              (rule) =>
-                `${rule.command_starts_with || '*'} -> ${rule.output_contains.join(', ')}`
-            )}
-          />
-          <ProfileList
-            label="Drain Rules"
-            items={profile.drain_rules.map(
-              (rule) =>
-                `${rule.command || rule.command_starts_with || '*'}: ${rule.drain_ms}ms`
-            )}
-          />
+        <div className="border-t border-gray-200 dark:border-white/10 px-4 py-4 space-y-5">
+          <ProfileSummary profile={profile} />
+          <div className="grid gap-4 md:grid-cols-2">
+            <ProfileGroup title="Pull Config">
+              <ProfileList label="Disable Pager" items={profile.disable_pager} />
+              <ProfileList label="Show Config" items={[profile.show_config]} />
+              <ProfileList label="Pull Timing" items={[
+                `Quiet: ${profile.pull_quiet_ms ?? 1200}ms`,
+                `Max: ${profile.pull_max_ms ?? 30000}ms`,
+              ]} />
+            </ProfileGroup>
+            <ProfileGroup title="Deploy Changes">
+              <ProfileList label="Enter Config Mode" items={profile.configure_enter} />
+              <ProfileList label="Commit or Save in Config Mode" items={profile.configure_save} />
+              <ProfileList label="Exit Config Mode" items={profile.configure_exit} />
+              <ProfileList label="Save to Startup" items={profile.save_config} />
+              <ProfileList label="Deploy Error Patterns" items={profile.error_patterns} />
+            </ProfileGroup>
+            <ProfileGroup title="Safety">
+              <ProfileList label="Reload Guard" items={[profile.reload_guard_cmd, profile.reload_guard_cancel].filter(Boolean) as string[]} />
+              <ProfileList label="Commit Confirmed Guard" items={profile.guarded_configure_save} />
+              <ProfileList label="Confirm Guard" items={profile.guard_confirm_cmds} />
+              <ProfileList
+                label="Prompt Responses"
+                items={profile.command_responses.map(
+                  (rule) => `${rule.command_starts_with || '*'} watches ${rule.output_contains.join(', ')}`
+                )}
+              />
+            </ProfileGroup>
+            <ProfileGroup title="Revert to Golden">
+              <ProfileList label="Terminal Replace" items={profile.terminal_replace_cmd ? [profile.terminal_replace_cmd] : []} />
+              <ProfileList label="File Replace" items={profile.replace_command ? [profile.replace_command] : []} />
+              <ProfileList label="Replace Enter" items={profile.replace_enter} />
+              <ProfileList label="Replace Exit" items={profile.replace_exit} />
+              <ProfileList label="SCP Paths" items={profile.scp_paths} />
+              <ProfileList label="Replace Error Patterns" items={profile.replace_error_patterns} />
+              <ProfileList
+                label="Replace Error Rules"
+                items={profile.replace_error_rules.map(
+                  (rule) => `${rule.command_starts_with || '*'} watches ${rule.output_contains.join(', ')}`
+                )}
+              />
+            </ProfileGroup>
+            <ProfileGroup title="Drift Cleanup">
+              <ProfileList label="Ignore Exact Lines" items={profile.config_ignore_exact} />
+              <ProfileList label="Ignore Prefixes" items={[...profile.drift_ignore_prefixes, ...profile.config_ignore_prefixes]} />
+              <ProfileList label="Ignore Contains" items={profile.config_ignore_contains} />
+            </ProfileGroup>
+            <ProfileGroup title="Advanced Timing">
+              <ProfileList
+                label="Drain Rules"
+                items={profile.drain_rules.map(
+                  (rule) => `${rule.command || rule.command_starts_with || '*'}: ${rule.drain_ms}ms`
+                )}
+              />
+            </ProfileGroup>
+          </div>
         </div>
       ) : null}
     </div>
@@ -1059,170 +1079,208 @@ function VendorProfileEditor({
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <ProfileArrayField
-          label="Matches"
-          values={profile.matches}
-          onChange={(matches) => onChange({ matches })}
-        />
-        <ProfileField
-          label="Show Config"
-          value={profile.show_config}
-          onChange={(show_config) => onChange({ show_config })}
-        />
-        <ProfileArrayField
-          label="Disable Pager"
-          values={profile.disable_pager}
-          onChange={(disable_pager) => onChange({ disable_pager })}
-        />
-        <ProfileArrayField
-          label="Configure Enter"
-          values={profile.configure_enter}
-          onChange={(configure_enter) => onChange({ configure_enter })}
-        />
-        <ProfileArrayField
-          label="Configure Save"
-          values={profile.configure_save}
-          onChange={(configure_save) => onChange({ configure_save })}
-        />
-        <ProfileArrayField
-          label="Configure Exit"
-          values={profile.configure_exit}
-          onChange={(configure_exit) => onChange({ configure_exit })}
-        />
-        <ProfileArrayField
-          label="Save Config"
-          values={profile.save_config}
-          onChange={(save_config) => onChange({ save_config })}
-        />
-        <ProfileArrayField
-          label="Guarded Save"
-          values={profile.guarded_configure_save}
-          onChange={(guarded_configure_save) => onChange({ guarded_configure_save })}
-        />
-        <ProfileField
-          label="Reload Guard Command"
-          value={profile.reload_guard_cmd ?? ''}
-          onChange={(reload_guard_cmd) => onChange({ reload_guard_cmd })}
-        />
-        <ProfileField
-          label="Reload Guard Cancel"
-          value={profile.reload_guard_cancel ?? ''}
-          onChange={(reload_guard_cancel) => onChange({ reload_guard_cancel })}
-        />
-        <ProfileField
-          label="Replace Command"
-          value={profile.replace_command ?? ''}
-          onChange={(replace_command) => onChange({ replace_command })}
-        />
-        <ProfileField
-          label="Replace Format"
-          value={profile.replace_format ?? ''}
-          onChange={(replace_format) => onChange({ replace_format })}
-        />
-        <ProfileArrayField
-          label="Replace Enter"
-          values={profile.replace_enter}
-          onChange={(replace_enter) => onChange({ replace_enter })}
-        />
-        <ProfileArrayField
-          label="Replace Exit"
-          values={profile.replace_exit}
-          onChange={(replace_exit) => onChange({ replace_exit })}
-        />
-        <ProfileArrayField
-          label="SCP Paths"
-          values={profile.scp_paths}
-          onChange={(scp_paths) => onChange({ scp_paths })}
-        />
-        <ProfileArrayField
-          label="Deploy Error Patterns"
-          values={profile.error_patterns}
-          onChange={(error_patterns) => onChange({ error_patterns })}
-        />
-        <ProfileArrayField
-          label="Replace Error Patterns"
-          values={profile.replace_error_patterns}
-          onChange={(replace_error_patterns) => onChange({ replace_error_patterns })}
-        />
-        <ProfileArrayField
-          label="Drift Ignore Prefixes"
-          values={profile.drift_ignore_prefixes}
-          onChange={(drift_ignore_prefixes) => onChange({ drift_ignore_prefixes })}
-        />
-        <ProfileArrayField
-          label="Config Ignore Exact"
-          values={profile.config_ignore_exact}
-          onChange={(config_ignore_exact) => onChange({ config_ignore_exact })}
-        />
-        <ProfileArrayField
-          label="Config Ignore Prefixes"
-          values={profile.config_ignore_prefixes}
-          onChange={(config_ignore_prefixes) => onChange({ config_ignore_prefixes })}
-        />
-        <ProfileArrayField
-          label="Config Ignore Contains"
-          values={profile.config_ignore_contains}
-          onChange={(config_ignore_contains) => onChange({ config_ignore_contains })}
-        />
-        <ProfileArrayField
-          label="Guard Confirm Commands"
-          values={profile.guard_confirm_cmds}
-          onChange={(guard_confirm_cmds) => onChange({ guard_confirm_cmds })}
-        />
-        <ProfileField
-          label="Terminal Replace Command"
-          value={profile.terminal_replace_cmd ?? ''}
-          onChange={(terminal_replace_cmd) => onChange({ terminal_replace_cmd: terminal_replace_cmd || undefined })}
-        />
-        <label className="block">
-          <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Allow Terminal Replace
-          </span>
-          <div className="flex items-center gap-2 h-9">
-            <input
-              type="checkbox"
-              checked={profile.allow_terminal_replace}
-              onChange={(e) => onChange({ allow_terminal_replace: e.target.checked })}
-              className="rounded border-gray-300 dark:border-white/20 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              Try terminal inline replace before SCP
-            </span>
-          </div>
-        </label>
-        <label className="block">
-          <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Pull Quiet ms
-          </span>
-          <input
-            type="number"
-            value={profile.pull_quiet_ms ?? ''}
+      <div className="space-y-3">
+        <ProfileSection title="1. Match and Pull Config" description="Choose which devices use this profile and how Themis captures running config." defaultOpen>
+          <ProfileArrayField
+            label="OS and Vendor Matches"
+            values={profile.matches}
+            help="Put OS names first. OS matches are exact, vendor matches are substring based."
+            onChange={(matches) => onChange({ matches })}
+          />
+          <ProfileField
+            label="Show Config Command"
+            value={profile.show_config}
+            help="The command that prints the full running configuration."
+            onChange={(show_config) => onChange({ show_config })}
+          />
+          <ProfileArrayField
+            label="Disable Pager Commands"
+            values={profile.disable_pager}
+            help="Commands sent before pulling config so output is not paginated."
+            onChange={(disable_pager) => onChange({ disable_pager })}
+          />
+          <ProfileNumberField
+            label="Pull Quiet ms"
+            value={profile.pull_quiet_ms}
             min={100}
             step={100}
-            placeholder="1200 (default)"
-            onChange={(e) => onChange({ pull_quiet_ms: e.target.value ? Number(e.target.value) : undefined })}
-            className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="1200 default"
+            help="How long output must be quiet before Themis treats the pull as complete."
+            onChange={(pull_quiet_ms) => onChange({ pull_quiet_ms })}
           />
-        </label>
-        <label className="block">
-          <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Pull Max ms
-          </span>
-          <input
-            type="number"
-            value={profile.pull_max_ms ?? ''}
+          <ProfileNumberField
+            label="Pull Max ms"
+            value={profile.pull_max_ms}
             min={1000}
             step={1000}
-            placeholder="30000 (default)"
-            onChange={(e) => onChange({ pull_max_ms: e.target.value ? Number(e.target.value) : undefined })}
-            className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="30000 default"
+            help="Maximum total wait time for one config pull."
+            onChange={(pull_max_ms) => onChange({ pull_max_ms })}
           />
-        </label>
-        <DrainRulesEditor
-          rules={profile.drain_rules}
-          onChange={(drain_rules) => onChange({ drain_rules })}
-        />
+        </ProfileSection>
+
+        <ProfileSection title="2. Deploy Changes" description="Define the normal command flow for applying a reviewed change.">
+          <ProfileArrayField
+            label="Enter Config Mode"
+            values={profile.configure_enter}
+            help="Examples: configure terminal, configure, system-view."
+            onChange={(configure_enter) => onChange({ configure_enter })}
+          />
+          <ProfileArrayField
+            label="Commit Inside Config Mode"
+            values={profile.configure_save}
+            help="Use for candidate-config systems. Leave empty for IOS-style devices."
+            onChange={(configure_save) => onChange({ configure_save })}
+          />
+          <ProfileArrayField
+            label="Exit Config Mode"
+            values={profile.configure_exit}
+            help="Examples: end, exit, return."
+            onChange={(configure_exit) => onChange({ configure_exit })}
+          />
+          <ProfileArrayField
+            label="Save to Startup Config"
+            values={profile.save_config}
+            help="Examples: write memory, copy running-config startup-config. Leave empty if commit persists config."
+            onChange={(save_config) => onChange({ save_config })}
+          />
+          <ProfileArrayField
+            label="Deploy Error Patterns"
+            values={profile.error_patterns}
+            help="If command output contains one of these strings, deployment stops."
+            onChange={(error_patterns) => onChange({ error_patterns })}
+          />
+        </ProfileSection>
+
+        <ProfileSection title="3. Safety Rollback" description="Protect management access when a deployment changes something risky.">
+          <ProfileField
+            label="Reload Guard Command"
+            value={profile.reload_guard_cmd ?? ''}
+            help="Schedules rollback by reload. Use {rollback_minutes} for the admin setting."
+            onChange={(reload_guard_cmd) => onChange({ reload_guard_cmd: reload_guard_cmd || undefined })}
+          />
+          <ProfileField
+            label="Reload Guard Cancel"
+            value={profile.reload_guard_cancel ?? ''}
+            help="Cancels the scheduled reload after Themis verifies SSH still works."
+            onChange={(reload_guard_cancel) => onChange({ reload_guard_cancel: reload_guard_cancel || undefined })}
+          />
+          <ProfileArrayField
+            label="Commit Confirmed Guard"
+            values={profile.guarded_configure_save}
+            help="Use for Junos-style commit confirmed workflows."
+            onChange={(guarded_configure_save) => onChange({ guarded_configure_save })}
+          />
+          <ProfileArrayField
+            label="Confirm Guard Commands"
+            values={profile.guard_confirm_cmds}
+            help="Commands that permanently confirm a guarded commit after SSH passes."
+            onChange={(guard_confirm_cmds) => onChange({ guard_confirm_cmds })}
+          />
+          <CommandResponsesEditor
+            rules={profile.command_responses}
+            onChange={(command_responses) => onChange({ command_responses })}
+          />
+        </ProfileSection>
+
+        <ProfileSection title="4. Revert to Golden" description="Define how Themis loads a complete golden config back to the device.">
+          <ProfileField
+            label="Terminal Replace Command"
+            value={profile.terminal_replace_cmd ?? ''}
+            help="Streams full config into a command. Good when SCP is unavailable."
+            onChange={(terminal_replace_cmd) => onChange({ terminal_replace_cmd: terminal_replace_cmd || undefined })}
+          />
+          <label className="block">
+            <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Allow Terminal Replace
+            </span>
+            <div className="flex items-center gap-2 h-9">
+              <input
+                type="checkbox"
+                checked={profile.allow_terminal_replace}
+                onChange={(e) => onChange({ allow_terminal_replace: e.target.checked })}
+                className="rounded border-gray-300 dark:border-white/20 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Try terminal replace before SCP
+              </span>
+            </div>
+          </label>
+          <ProfileField
+            label="File Replace Command"
+            value={profile.replace_command ?? ''}
+            help="SCP-based full replace command. Use {path} where the uploaded file path belongs."
+            onChange={(replace_command) => onChange({ replace_command: replace_command || undefined })}
+          />
+          <ProfileField
+            label="Replace Format"
+            value={profile.replace_format ?? ''}
+            help="Optional format hint, for example junos-text."
+            onChange={(replace_format) => onChange({ replace_format: replace_format || undefined })}
+          />
+          <ProfileArrayField
+            label="Replace Enter"
+            values={profile.replace_enter}
+            help="Commands sent before full replace."
+            onChange={(replace_enter) => onChange({ replace_enter })}
+          />
+          <ProfileArrayField
+            label="Replace Exit"
+            values={profile.replace_exit}
+            help="Commands sent after full replace, often commit."
+            onChange={(replace_exit) => onChange({ replace_exit })}
+          />
+          <ProfileArrayField
+            label="SCP Paths"
+            values={profile.scp_paths}
+            help="Remote upload paths. Use {filename} as the placeholder."
+            onChange={(scp_paths) => onChange({ scp_paths })}
+          />
+          <ProfileArrayField
+            label="Replace Error Patterns"
+            values={profile.replace_error_patterns}
+            help="Extra errors to watch for during full replace."
+            onChange={(replace_error_patterns) => onChange({ replace_error_patterns })}
+          />
+          <CommandErrorRulesEditor
+            rules={profile.replace_error_rules}
+            onChange={(replace_error_rules) => onChange({ replace_error_rules })}
+          />
+        </ProfileSection>
+
+        <ProfileSection title="5. Drift Cleanup" description="Remove timestamps, prompts, banners, and other non-config noise before comparing configs.">
+          <ProfileArrayField
+            label="Ignore Exact Lines"
+            values={profile.config_ignore_exact}
+            help="Whole lines to remove when they match exactly."
+            onChange={(config_ignore_exact) => onChange({ config_ignore_exact })}
+          />
+          <ProfileArrayField
+            label="Ignore Line Prefixes"
+            values={profile.config_ignore_prefixes}
+            help="Lines starting with these strings are removed."
+            onChange={(config_ignore_prefixes) => onChange({ config_ignore_prefixes })}
+          />
+          <ProfileArrayField
+            label="Ignore Drift Prefixes"
+            values={profile.drift_ignore_prefixes}
+            help="Legacy drift prefix list. Also useful for metadata emitted by the OS."
+            onChange={(drift_ignore_prefixes) => onChange({ drift_ignore_prefixes })}
+          />
+          <ProfileArrayField
+            label="Ignore Lines Containing"
+            values={profile.config_ignore_contains}
+            help="Lines containing these strings are removed."
+            onChange={(config_ignore_contains) => onChange({ config_ignore_contains })}
+          />
+        </ProfileSection>
+
+        <ProfileSection title="6. Advanced Timing" description="Tune slow commands that need longer output drain windows.">
+          <DrainRulesEditor
+            rules={profile.drain_rules}
+            onChange={(drain_rules) => onChange({ drain_rules })}
+          />
+        </ProfileSection>
       </div>
 
       <div className="flex items-center gap-3">
@@ -1245,13 +1303,89 @@ function VendorProfileEditor({
   )
 }
 
+function ProfileSection({
+  title,
+  description,
+  children,
+  defaultOpen = false,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5"
+    >
+      <summary className="cursor-pointer select-none px-4 py-3">
+        <div className="inline-flex flex-col">
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">{title}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{description}</span>
+        </div>
+      </summary>
+      <div className="border-t border-gray-100 dark:border-white/10 px-4 py-4 grid gap-4 md:grid-cols-2">
+        {children}
+      </div>
+    </details>
+  )
+}
+
+function ProfileCapability({ label, enabled }: { label: string; enabled: boolean }) {
+  return (
+    <span
+      className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+        enabled
+          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+          : 'bg-gray-100 text-gray-400 dark:bg-white/10 dark:text-gray-500'
+      }`}
+    >
+      {label}
+    </span>
+  )
+}
+
+function ProfileGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-black/20 p-3 space-y-3">
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function ProfileSummary({ profile }: { profile: VendorProfileEntry }) {
+  const flow = [
+    profile.configure_enter.length ? `enter: ${profile.configure_enter.join(', ')}` : null,
+    profile.configure_save.length ? `commit: ${profile.configure_save.join(', ')}` : null,
+    profile.configure_exit.length ? `exit: ${profile.configure_exit.join(', ')}` : null,
+    profile.save_config.length ? `save: ${profile.save_config.join(', ')}` : null,
+  ].filter(Boolean)
+
+  return (
+    <div className="rounded-lg border border-blue-100 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2">
+      <div className="text-xs font-semibold uppercase tracking-wider text-blue-500 dark:text-blue-300 mb-1">
+        What this profile does
+      </div>
+      <div className="text-sm text-blue-900 dark:text-blue-100">
+        Pulls with <span className="font-mono text-xs">{profile.show_config}</span>
+        {flow.length > 0 && <>. Deploy flow: {flow.join(' | ')}</>}
+        {profile.reload_guard_cmd || profile.guarded_configure_save.length ? '. Safety rollback is configured.' : '. No safety rollback is configured.'}
+      </div>
+    </div>
+  )
+}
+
 function ProfileField({
   label,
   value,
+  help,
   onChange,
 }: {
   label: string
   value: string
+  help?: string
   onChange: (value: string) => void
 }) {
   return (
@@ -1264,6 +1398,43 @@ function ProfileField({
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
+      {help && <span className="mt-1 block text-xs text-gray-400">{help}</span>}
+    </label>
+  )
+}
+
+function ProfileNumberField({
+  label,
+  value,
+  min,
+  step,
+  placeholder,
+  help,
+  onChange,
+}: {
+  label: string
+  value?: number
+  min: number
+  step: number
+  placeholder: string
+  help?: string
+  onChange: (value?: number) => void
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        {label}
+      </span>
+      <input
+        type="number"
+        value={value ?? ''}
+        min={min}
+        step={step}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+        className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      {help && <span className="mt-1 block text-xs text-gray-400">{help}</span>}
     </label>
   )
 }
@@ -1271,10 +1442,12 @@ function ProfileField({
 function ProfileArrayField({
   label,
   values,
+  help,
   onChange,
 }: {
   label: string
   values: string[]
+  help?: string
   onChange: (values: string[]) => void
 }) {
   return (
@@ -1290,6 +1463,7 @@ function ProfileArrayField({
         }
         className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
       />
+      {help && <span className="mt-1 block text-xs text-gray-400">{help}</span>}
     </label>
   )
 }
@@ -1312,6 +1486,149 @@ function ProfileList({ label, items }: { label: string; items: string[] }) {
       ) : (
         <div className="text-xs text-gray-400 dark:text-gray-500">None</div>
       )}
+    </div>
+  )
+}
+
+function CommandResponsesEditor({
+  rules,
+  onChange,
+}: {
+  rules: CommandResponseRule[]
+  onChange: (rules: CommandResponseRule[]) => void
+}) {
+  const update = (i: number, patch: Partial<CommandResponseRule>) =>
+    onChange(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const remove = (i: number) => onChange(rules.filter((_, idx) => idx !== i))
+  const add = () =>
+    onChange([
+      ...rules,
+      {
+        command_starts_with: 'reload ',
+        output_contains: ['[confirm]'],
+        response: '',
+        max_repeats: 1,
+        drain_ms: 1500,
+      },
+    ])
+
+  return (
+    <div className="md:col-span-2">
+      <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        Prompt Responses
+        <span className="ml-1 font-normal text-gray-400">
+          Answer interactive prompts such as reload confirmations.
+        </span>
+      </div>
+      <div className="space-y-2">
+        {rules.map((rule, i) => (
+          <div key={i} className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 p-3 grid gap-2 md:grid-cols-[1fr_1fr_120px_90px_32px]">
+            <input
+              value={rule.command_starts_with ?? ''}
+              onChange={(e) => update(i, { command_starts_with: e.target.value || undefined })}
+              placeholder="command starts with"
+              className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-black/20 px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <textarea
+              value={rule.output_contains.join('\n')}
+              rows={2}
+              onChange={(e) => update(i, { output_contains: e.target.value.split('\n').map((v) => v.trim()).filter(Boolean) })}
+              placeholder="output contains"
+              className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-black/20 px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              value={rule.response}
+              onChange={(e) => update(i, { response: e.target.value })}
+              placeholder="response"
+              className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-black/20 px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="number"
+              value={rule.drain_ms}
+              min={100}
+              step={100}
+              onChange={(e) => update(i, { drain_ms: Number(e.target.value) })}
+              className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-black/20 px-3 py-1.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => remove(i)}
+              className="text-red-400 hover:text-red-600 transition-colors p-1 rounded"
+              title="Remove prompt response"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={add}
+          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+        >
+          <Plus className="w-3 h-3" /> Add Prompt Response
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CommandErrorRulesEditor({
+  rules,
+  onChange,
+}: {
+  rules: CommandErrorRule[]
+  onChange: (rules: CommandErrorRule[]) => void
+}) {
+  const update = (i: number, patch: Partial<CommandErrorRule>) =>
+    onChange(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const remove = (i: number) => onChange(rules.filter((_, idx) => idx !== i))
+  const add = () =>
+    onChange([
+      ...rules,
+      {
+        command_starts_with: 'load override',
+        output_contains: ['error opening', 'permission denied', 'not found'],
+      },
+    ])
+
+  return (
+    <div className="md:col-span-2">
+      <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        Replace Error Rules
+        <span className="ml-1 font-normal text-gray-400">
+          Extra failure patterns for specific replace commands.
+        </span>
+      </div>
+      <div className="space-y-2">
+        {rules.map((rule, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <input
+              value={rule.command_starts_with ?? ''}
+              onChange={(e) => update(i, { command_starts_with: e.target.value || undefined })}
+              placeholder="command starts with"
+              className="w-52 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <textarea
+              value={rule.output_contains.join('\n')}
+              rows={2}
+              onChange={(e) => update(i, { output_contains: e.target.value.split('\n').map((v) => v.trim()).filter(Boolean) })}
+              placeholder="error output contains"
+              className="flex-1 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => remove(i)}
+              className="text-red-400 hover:text-red-600 transition-colors p-1 rounded"
+              title="Remove error rule"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={add}
+          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+        >
+          <Plus className="w-3 h-3" /> Add Replace Error Rule
+        </button>
+      </div>
     </div>
   )
 }
