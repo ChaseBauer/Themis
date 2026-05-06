@@ -167,7 +167,10 @@ async fn update_device(
     Ok(Json(device))
 }
 
-async fn list_sites(State(state): State<AppState>, _claims: Claims) -> Result<Json<Vec<DeviceSite>>> {
+async fn list_sites(
+    State(state): State<AppState>,
+    _claims: Claims,
+) -> Result<Json<Vec<DeviceSite>>> {
     let sites = sqlx::query_as::<_, DeviceSite>(
         "SELECT id, name, created_at FROM device_sites ORDER BY LOWER(name)",
     )
@@ -225,10 +228,11 @@ async fn delete_site(
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
     auth::require_not_viewer(&state, user_id).await?;
 
-    let site_name: Option<String> = sqlx::query_scalar("SELECT name FROM device_sites WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?;
+    let site_name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM device_sites WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
     let Some(site_name) = site_name else {
         return Err(AppError::NotFound);
     };
@@ -353,11 +357,18 @@ async fn ensure_tags_exist(state: &AppState, tags: &[String]) -> Result<()> {
     }
     let existing: Vec<String> =
         sqlx::query_scalar("SELECT name FROM device_tags WHERE name_key = ANY($1)")
-            .bind(tags.iter().map(|tag| tag.to_lowercase()).collect::<Vec<_>>())
+            .bind(
+                tags.iter()
+                    .map(|tag| tag.to_lowercase())
+                    .collect::<Vec<_>>(),
+            )
             .fetch_all(&state.db)
             .await?;
     for tag in tags {
-        if !existing.iter().any(|existing| existing.eq_ignore_ascii_case(tag)) {
+        if !existing
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(tag))
+        {
             return Err(AppError::BadRequest(format!(
                 "Tag '{}' does not exist. Create it before assigning it to a device.",
                 tag
@@ -385,7 +396,11 @@ async fn ensure_site_exists(state: &AppState, site: Option<&str>) -> Result<()> 
     Ok(())
 }
 
-async fn sync_device_tag_assignments(state: &AppState, device_id: Uuid, tags: &[String]) -> Result<()> {
+async fn sync_device_tag_assignments(
+    state: &AppState,
+    device_id: Uuid,
+    tags: &[String],
+) -> Result<()> {
     sqlx::query("DELETE FROM device_tag_assignments WHERE device_id = $1")
         .bind(device_id)
         .execute(&state.db)
@@ -401,7 +416,11 @@ async fn sync_device_tag_assignments(state: &AppState, device_id: Uuid, tags: &[
          ON CONFLICT DO NOTHING",
     )
     .bind(device_id)
-    .bind(tags.iter().map(|tag| tag.to_lowercase()).collect::<Vec<_>>())
+    .bind(
+        tags.iter()
+            .map(|tag| tag.to_lowercase())
+            .collect::<Vec<_>>(),
+    )
     .execute(&state.db)
     .await?;
     Ok(())
